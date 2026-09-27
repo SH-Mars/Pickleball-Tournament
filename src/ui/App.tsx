@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AppProvider, useApp, type View } from '../state/store';
 import { serialize } from '../domain/serialization';
 import { progress, champion } from '../domain/tournament';
+import { getFormat } from '../domain/bracket';
 import { saveFile, slug } from '../util/files';
 import { Modal } from './kit';
 import { TournamentPage } from './TournamentPage';
@@ -35,7 +36,8 @@ function Shell() {
   const [share, setShare] = useState(false);
   const [opening, setOpening] = useState(false);
   const live = t.status === 'live';
-  const steps = live ? LIVE_TABS : SETUP_STEPS;
+  const viewLabel = getFormat(t.formatId).viewLabel;
+  const steps = (live ? LIVE_TABS : SETUP_STEPS).map((x) => (x.id === 'bracket' ? { ...x, label: viewLabel } : x));
   const current: View = steps.some((s) => s.id === view) ? view : steps[0].id;
   const prog = progress(t);
   const champ = champion(t);

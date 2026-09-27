@@ -41,6 +41,35 @@ describe('save / load', () => {
   });
 });
 
+describe('version compatibility', () => {
+  it('opens a schema v1 file (saved before pools and sections existed)', () => {
+    const f = JSON.parse(serialize(liveTournament()));
+    f.schemaVersion = 1;
+    delete f.tournament.settings.pools;
+    delete f.tournament.settings.advancePerPool;
+    f.bracket.rounds.forEach((r: any) => { delete r.section; delete r.kind; });
+    delete f.bracket.groups;
+    const r = parseTournament(JSON.stringify(f));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.tournament.settings.pools).toBe(2);
+      expect(r.tournament.settings.advancePerPool).toBe(2);
+      expect(r.tournament.bracket!.rounds.every((x) => x.section === 'Main bracket' && x.kind === 'elimination')).toBe(true);
+    }
+  });
+  it('round-trips pool play, round robin and double elimination tournaments', () => {
+    for (const formatId of ['pool_play', 'round_robin', 'double_elimination'] as const) {
+      let t = setPlayersForTest(createTournament(7), 'M:8,F:8');
+      t = { ...t, formatId, pairing: { ...t.pairing, strategy: 'random' } };
+      t = generateTeams(t).tournament!;
+      t = startTournament(t);
+      const back = parseTournament(serialize(t));
+      expect(back.ok).toBe(true);
+      if (back.ok) expect(back.tournament).toEqual(JSON.parse(JSON.stringify(t)));
+    }
+  });
+});
+
 describe('validation', () => {
   const good = () => JSON.parse(serialize(liveTournament()));
   const bad = (mutate: (f: any) => void) => {

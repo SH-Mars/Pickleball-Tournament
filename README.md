@@ -11,7 +11,12 @@ A web app for running pickleball tournaments: enter players, generate teams unde
   - If no valid grouping exists, the app says so, explains the conflict and suggests relaxations that were tested to work.
 - **Reproducible draws.** Every draw uses a visible seed. The same players, rules and seed give the same teams. Generated teams are also saved in the tournament file, so old tournaments keep their teams even if the algorithm changes.
 - **Team editing.** Swap players, lock teams, and see which teams were changed by hand. Swaps that break a rule need confirmation.
-- **Single-elimination bracket.** Any number of teams, with byes for top seeds. Optional third-place match. Best of 1, 3 or 5 games, configurable points to win and win-by-2.
+- **Four tournament formats.**
+  - *Single Elimination.* Any number of teams, with byes for top seeds. Optional third-place match.
+  - *Round Robin.* Every team plays every other team once. Standings rank teams by wins, then head-to-head among tied teams, then point difference, then points scored.
+  - *Double Elimination.* Winners and losers brackets for any team count of 3 or more. Byes pass through the losers bracket automatically. The grand final has a reset match that is only played if the losers-bracket team wins the first one.
+  - *Pool Play → Single Elimination.* Teams are split into pools with a snake draw by seed, play a round robin, and the top teams from each pool go to a playoff. Playoff seeding is by finishing place first and pool second, so pool-mates stay apart early. Playoff slots fill in as each pool finishes.
+  - Games per match, points to win and win-by-2 apply to every format.
 - **Scoring.** Score validation, automatic advancement, and corrections. Changing a winner resets only the later results that depended on it, after you confirm.
 - **Courts.** Assign matches to courts and start them from the Matches view.
 - **Lock.** Starting the tournament locks players, teams and rules. Scores stay editable.
@@ -19,7 +24,7 @@ A web app for running pickleball tournaments: enter players, generate teams unde
 - **Export.** Download the bracket as PNG or PDF, with optional pairing strategy and seed.
 - **Local recovery.** The current tournament is kept in browser storage as a convenience. The `.pbt` file is the real backup.
 
-Round Robin, Double Elimination, Pool Play and consolation brackets appear in the interface as "Coming soon". The code is structured so they can be added.
+A consolation bracket is not built yet and appears as "Coming soon". The format registry in `src/domain/bracket/formats.ts` is where a new format goes.
 
 ## Run locally
 
@@ -49,7 +54,7 @@ src/
     types.ts           Data model (Tournament, Player, Team, Match, ...)
     rng.ts             Seeded random numbers
     pairing/           Strategy registry, solver, diagnostics
-    bracket/           Format registry, single elimination, scoring, advancement
+    bracket/           Format registry, the four format builders, standings, scoring, advancement
     tournament.ts      Tournament operations (generate, lock, seed, courts)
     serialization.ts   .pbt save/load, validation, share links
   state/store.tsx    App state, local storage, dialogs, toasts
@@ -62,8 +67,8 @@ tests/               Pairing, bracket and serialization tests
 ### Design notes
 
 - Nothing is hard-coded to one tournament. The "more men than women, no Female + Female" case is the Custom strategy with Male + Male and Male + Female ticked.
-- Match participants and winners are derived from the recorded games and the bracket structure, not stored. Advancement cannot get out of sync with the scores.
-- To add a pairing strategy, call `registerStrategy` in `src/domain/pairing/strategies.ts`. To add a tournament format, add an entry in `src/domain/bracket/formats.ts` that builds a `Bracket` of matches whose slots refer to earlier matches.
+- Match participants and winners are derived from the recorded games and the bracket structure, not stored. Advancement cannot get out of sync with the scores. A slot can be a team, the winner or loser of another match, a bye, a pool finishing place, or a grand-final reset, and every format is built from those.
+- To add a pairing strategy, call `registerStrategy` in `src/domain/pairing/strategies.ts`. To add a tournament format, add an entry in `src/domain/bracket/formats.ts` that builds a `Bracket` of matches whose slots refer to earlier matches, and add a champion rule in `champion.ts`.
 
 ## Tournament file format
 
@@ -71,7 +76,7 @@ A `.pbt` file is JSON:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "applicationVersion": "1.0.0",
   "savedAt": "...",
   "tournament": { "...": "name, date, format, status, settings" },
@@ -83,7 +88,7 @@ A `.pbt` file is JSON:
 }
 ```
 
-Files are validated on open. Corrupt files and files from a newer schema are rejected with a clear message.
+Files are validated on open. Files saved by version 1 of the app are upgraded automatically. Corrupt files and files from a newer schema are rejected with a clear message.
 
 ## Limits
 

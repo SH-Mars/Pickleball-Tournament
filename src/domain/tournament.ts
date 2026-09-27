@@ -5,7 +5,8 @@ import { PAIRING_ALGORITHM_VERSION } from './types';
 import { deriveSeed, mulberry32, shuffle } from './rng';
 import { runPairing, teamViolations, type PairingResult } from './pairing';
 import { getFormat } from './bracket/formats';
-import { championId, readyMatches, resolveBracket } from './bracket/bracket';
+import { championId } from './bracket/champion';
+import { readyMatches, resolveBracket } from './bracket/bracket';
 
 let idCounter = 0;
 export function newId(prefix: string): string {
@@ -20,6 +21,8 @@ export function defaultSettings(): TournamentSettings {
     scoring: { pointsToWin: 11, winBy2: true, gamesPerMatch: 1 },
     thirdPlaceMatch: false,
     seeding: 'order',
+    pools: 2,
+    advancePerPool: 2,
   };
 }
 
@@ -146,15 +149,16 @@ export function seedTeams(t: Tournament, method: SeedingMethod = t.settings.seed
 }
 
 export function buildBracketFor(t: Tournament): Bracket {
-  return getFormat(t.formatId).build({ teamIdsInSeedOrder: seedTeams(t), thirdPlaceMatch: t.settings.thirdPlaceMatch });
+  return getFormat(t.formatId).build({ teamIdsInSeedOrder: seedTeams(t), settings: t.settings });
 }
 
 export interface StartCheck { ok: boolean; problems: string[] }
 
 export function canStart(t: Tournament): StartCheck {
   const problems: string[] = [];
-  if (!getFormat(t.formatId).available) problems.push('The selected tournament format is not available yet.');
-  if (t.teams.length < 2) problems.push('At least 2 teams are needed.');
+  const fmt = getFormat(t.formatId);
+  if (!fmt.available) problems.push('The selected tournament format is not available yet.');
+  problems.push(...fmt.validate(t.teams.length, t.settings));
   if (benchPlayers(t).length) problems.push(`${benchPlayers(t).length} active player(s) are not on a team.`);
   const dupes = new Set<string>();
   for (const id of t.teams.flatMap((x) => x.playerIds)) {

@@ -25,6 +25,7 @@ export function SettingsPage() {
         <h2>Record</h2>
         <dl className="record">
           <dt>Format</dt><dd>{getFormat(t.formatId).label}</dd>
+          {t.formatId === 'pool_play' && <><dt>Pools</dt><dd>{s.pools} pools, top {s.advancePerPool} from each advance</dd></>}
           <dt>Scoring</dt><dd>{s.scoring.gamesPerMatch === 1 ? '1 game' : `Best of ${s.scoring.gamesPerMatch}`} to {s.scoring.pointsToWin}{s.scoring.winBy2 ? ', win by 2' : ''}</dd>
           <dt>Pairing</dt><dd>{getStrategy(t.pairing.strategy).label}, teams of {t.pairing.teamSize}</dd>
           <dt>Seed</dt><dd>{t.generation?.seed ?? t.pairing.seed} (algorithm v{t.generation?.algorithmVersion ?? 1})</dd>

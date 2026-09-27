@@ -9,7 +9,7 @@ export interface TournamentFile {
   players: Tournament['players'];
   teams: Tournament['teams'];
   pairing: Tournament['pairing'];
-  bracket?: { formatId: string; rounds: NonNullable<Tournament['bracket']>['rounds'] };
+  bracket?: { formatId: string; rounds: NonNullable<Tournament['bracket']>['rounds']; groups?: NonNullable<Tournament['bracket']>['groups'] };
   matches: NonNullable<Tournament['bracket']>['matches'];
 }
 
@@ -23,7 +23,7 @@ export function toFile(t: Tournament, now = new Date()): TournamentFile {
     players,
     teams,
     pairing,
-    bracket: bracket ? { formatId: bracket.formatId, rounds: bracket.rounds } : undefined,
+    bracket: bracket ? { formatId: bracket.formatId, rounds: bracket.rounds, groups: bracket.groups } : undefined,
     matches: bracket?.matches ?? [],
   };
 }
@@ -47,11 +47,25 @@ const need = (cond: unknown, msg: string): void => {
 const GENDERS = ['male', 'female', 'other', 'unspecified'];
 const STRATEGIES = ['random', 'balanced', 'skill', 'mens', 'womens', 'mixed', 'custom'];
 const FORMATS = ['single_elimination', 'round_robin', 'double_elimination', 'pool_play'];
-const SLOT_KINDS = ['team', 'winner', 'loser', 'bye'];
+const SLOT_KINDS = ['team', 'winner', 'loser', 'bye', 'standing', 'gfReset'];
 
-/** Upgrade older schema versions in place. Add a step here when SCHEMA_VERSION changes. */
+/** Upgrade older schema versions. Add a step here whenever SCHEMA_VERSION changes. */
 function migrate(raw: Obj): Obj {
-  return raw;
+  let f = raw;
+  if ((f.schemaVersion as number) < 2) {
+    // v1 -> v2: pool settings and round sections were added for the new formats.
+    const meta = isObj(f.tournament) ? { ...f.tournament } : {};
+    const settings = isObj(meta.settings) ? { ...meta.settings } : {};
+    if (settings.pools === undefined) settings.pools = 2;
+    if (settings.advancePerPool === undefined) settings.advancePerPool = 2;
+    meta.settings = settings;
+    const bracket = isObj(f.bracket) ? { ...f.bracket } : f.bracket;
+    if (isObj(bracket) && Array.isArray(bracket.rounds)) {
+      bracket.rounds = (bracket.rounds as unknown[]).map((r) => (isObj(r) ? { section: 'Main bracket', kind: 'elimination', ...r } : r));
+    }
+    f = { ...f, schemaVersion: 2, tournament: meta, bracket };
+  }
+  return f;
 }
 
 export function parseTournament(text: string): ParseResult {
@@ -85,6 +99,8 @@ export function parseTournament(text: string): ParseResult {
     need(sc.gamesPerMatch === 1 || sc.gamesPerMatch === 3 || sc.gamesPerMatch === 5, 'Games per match is invalid.');
     need(typeof s.thirdPlaceMatch === 'boolean', 'The third-place setting is invalid.');
     need(['order', 'rating', 'random'].includes(s.seeding as string), 'The seeding setting is invalid.');
+    need(isNum(s.pools) && Number.isInteger(s.pools) && s.pools >= 1, 'The number of pools is invalid.');
+    need(isNum(s.advancePerPool) && Number.isInteger(s.advancePerPool) && s.advancePerPool >= 1, 'The number of teams advancing from each pool is invalid.');
 
     need(Array.isArray(f.players), 'The player list is missing.');
     const playerIds = new Set<string>();
@@ -137,9 +153,18 @@ export function parseTournament(text: string): ParseResult {
       const roundIds = new Set<string>();
       for (const r of b.rounds as unknown[]) {
         need(isObj(r) && isStr(r.id) && isStr(r.name) && isNum(r.order), 'A round entry is malformed.');
+        need(isStr((r as Obj).section) && ((r as Obj).kind === 'elimination' || (r as Obj).kind === 'group'), 'A round has an invalid section.');
         roundIds.add((r as Obj).id as string);
       }
       const matchIds = new Set((matches as Obj[]).map((m) => (isObj(m) ? m.id : undefined)));
+      const groupIds = new Set<string>();
+      if (b.groups !== undefined) {
+        need(Array.isArray(b.groups), 'The pool list is malformed.');
+        for (const g of b.groups as unknown[]) {
+          need(isObj(g) && isStr(g.id) && isStr(g.name) && Array.isArray(g.teamIds) && g.teamIds.every((x) => isStr(x) && teamIds.has(x)), 'A pool is malformed or refers to an unknown team.');
+          groupIds.add((g as Obj).id as string);
+        }
+      }
       for (const m of matches as unknown[]) {
         need(isObj(m) && isStr(m.id) && isStr(m.roundId) && isNum(m.number), 'A match entry is malformed.');
         const mm = m as Obj;
@@ -151,14 +176,18 @@ export function parseTournament(text: string): ParseResult {
           'A match has invalid game scores.',
         );
         need(mm.court === undefined || isNum(mm.court), 'A match has an invalid court.');
+        need(mm.label === undefined || isStr(mm.label), 'A match has an invalid label.');
+        need(mm.groupId === undefined || (isStr(mm.groupId) && groupIds.has(mm.groupId)), 'A match refers to an unknown pool.');
         for (const slot of [mm.slotA, mm.slotB]) {
           need(isObj(slot) && SLOT_KINDS.includes(slot.kind as string), 'A match slot is malformed.');
           const sl = slot as Obj;
           if (sl.kind === 'team') need(isStr(sl.teamId) && teamIds.has(sl.teamId), 'A match refers to a team that does not exist.');
           if (sl.kind === 'winner' || sl.kind === 'loser') need(isStr(sl.matchId) && matchIds.has(sl.matchId), 'A match refers to a match that does not exist.');
+          if (sl.kind === 'gfReset') need(isStr(sl.matchId) && matchIds.has(sl.matchId) && (sl.side === 'A' || sl.side === 'B'), 'A grand-final reset slot is malformed.');
+          if (sl.kind === 'standing') need(isStr(sl.groupId) && groupIds.has(sl.groupId) && isNum(sl.rank) && sl.rank >= 1, 'A playoff slot refers to an unknown pool.');
         }
       }
-      bracket = { formatId: b.formatId as Tournament['formatId'], rounds: b.rounds as never, matches: matches as never };
+      bracket = { formatId: b.formatId as Tournament['formatId'], rounds: b.rounds as never, matches: matches as never, groups: b.groups as never };
     }
     need(meta.status !== 'live' || bracket, 'A running tournament must have a bracket.');
 

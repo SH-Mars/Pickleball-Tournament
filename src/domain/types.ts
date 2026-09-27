@@ -1,6 +1,6 @@
 /** Core domain model. Pure data, JSON-serializable, no UI concerns. */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const APP_VERSION = '1.0.0';
 /** Bump when pairing output for the same inputs+seed would change. */
 export const PAIRING_ALGORITHM_VERSION = 1;
@@ -59,13 +59,21 @@ export type Slot =
   | { kind: 'team'; teamId: string }
   | { kind: 'winner'; matchId: string }
   | { kind: 'loser'; matchId: string }
-  | { kind: 'bye' };
+  | { kind: 'bye' }
+  /** Team finishing at `rank` (1 = first) in a pool, known once every match in that pool is complete. */
+  | { kind: 'standing'; groupId: string; rank: number }
+  /** Grand-final reset: only exists if the losers-bracket team won the first grand final. */
+  | { kind: 'gfReset'; matchId: string; side: 'A' | 'B' };
 
 export interface Match {
   id: string;
   roundId: string;
   number: number;
   kind: 'main' | 'third_place';
+  /** Optional display name; when absent the UI derives one from the round. */
+  label?: string;
+  /** Set for round-robin and pool matches; standings are computed per group. */
+  groupId?: string;
   slotA: Slot;
   slotB: Slot;
   games: Game[];
@@ -76,14 +84,26 @@ export interface Match {
 
 export interface Round {
   id: string;
+  /** Global play order across the whole bracket (1 = first). */
   order: number;
   name: string;
+  /** Rounds with the same section are drawn together, e.g. "Winners bracket". */
+  section: string;
+  kind: 'elimination' | 'group';
+}
+
+/** A pool (or the single group of a round robin). */
+export interface Group {
+  id: string;
+  name: string;
+  teamIds: string[];
 }
 
 export interface Bracket {
   formatId: FormatId;
   rounds: Round[];
   matches: Match[];
+  groups?: Group[];
 }
 
 export type FormatId = 'single_elimination' | 'round_robin' | 'double_elimination' | 'pool_play';
@@ -100,6 +120,9 @@ export interface TournamentSettings {
   scoring: ScoringSettings;
   thirdPlaceMatch: boolean;
   seeding: SeedingMethod;
+  /** Pool play only. */
+  pools: number;
+  advancePerPool: number;
 }
 
 export interface Tournament {
